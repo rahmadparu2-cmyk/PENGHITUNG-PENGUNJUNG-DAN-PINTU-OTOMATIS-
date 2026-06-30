@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<title>Gate Monitor — Smart Visitor Counter</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root{
+    --bg: #0b0f0d;
+    --panel: #111713;
+    --line: #243027;
+    --phosphor: #5dff8f;
+    --phosphor-dim: #2f8a55;
+    --amber: #ffb454;
+    --red: #ff5d5d;
+    --text: #c9d6cd;
+    --text-dim: #6b7d72;
+    --mono: 'IBM Plex Mono', 'Courier New', monospace;
+    --display: 'Oswald', 'Arial Narrow', sans-serif;
+  }
+
+  *{box-sizing:border-box;}
+  html,body{
+    margin:0;
+    height:100%;
+    overflow:hidden; /* no outer page scroll */
+  }
+  body{
+    background:
+      repeating-linear-gradient(0deg, rgba(255,255,255,0.012) 0px, rgba(255,255,255,0.012) 1px, transparent 1px, transparent 3px),
+      radial-gradient(circle at 50% 0%, #131c16 0%, var(--bg) 60%);
+    color:var(--text);
+    font-family:var(--mono);
+    height:100dvh;
+    height:100vh;
+  }
+
+  .wrap{
+    max-width:980px;
+    margin:0 auto;
+    height:100%;
+    padding: clamp(8px,1.8vh,22px) clamp(10px,2vw,22px);
+    display:flex;
+    flex-direction:column;
+    gap: clamp(6px,1.1vh,14px);
+    overflow:hidden;
+  }
+
+  /* ---- header / gate strip ---- */
+  .gatebar{
+    flex:0 0 auto;
+    display:flex;align-items:center;justify-content:space-between;
+    padding: clamp(8px,1.2vh,14px) clamp(12px,2vw,20px);
+    border:1px solid var(--line);border-radius:4px;
+    background:linear-gradient(180deg,#10160f,#0d120e);
+  }
+  .gate-id{
+    font-family:var(--display);
+    text-transform:uppercase;
+    letter-spacing:.12em;
+    font-size:clamp(10px,1.3vh,13px);
+    color:var(--text-dim);
+  }
+  .gate-id b{color:var(--phosphor);font-weight:600;}
+  .live-dot{
+    display:inline-block;width:8px;height:8px;border-radius:50%;
+    background:var(--phosphor);margin-right:8px;
+    box-shadow:0 0 8px var(--phosphor);
+    animation:pulse 1.6s infinite;
+  }
+  .live-dot.off{background:var(--red);box-shadow:0 0 8px var(--red);animation:none;}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+
+  .titleblock{flex:0 0 auto;}
+  h1{
+    font-family:var(--display);
+    font-weight:600;
+    font-size:clamp(18px,3.6vh,34px);
+    letter-spacing:.01em;
+    margin:4px 0 1px;
+    color:#eef5ef;
+    line-height:1.05;
+  }
+  .sub{color:var(--text-dim);font-size:clamp(10px,1.3vh,13px);margin:0;}
+
+  /* ---- the signature: occupancy gate gauge ---- */
+  .gate-signature{
+    flex:0 0 auto;
+    border:1px solid var(--line);
+    border-radius:4px;
+    background:var(--panel);
+    padding: clamp(10px,1.8vh,22px) clamp(14px,2.4vw,26px) clamp(8px,1.4vh,14px);
+    position:relative;
+    overflow:hidden;
+  }
+  .gate-signature::before{
+    content:"";position:absolute;inset:0;
+    background:repeating-linear-gradient(90deg, transparent 0 38px, rgba(93,255,143,0.035) 38px 39px);
+    pointer-events:none;
+  }
+  .slots{
+    display:flex;gap:8px;margin: clamp(8px,1.6vh,16px) 0;
+    position:relative;z-index:1;
+  }
+  .slot{
+    flex:1;height:clamp(26px,5.2vh,44px);border:1px solid var(--line);border-radius:3px;
+    background:#0a0f0b;
+    display:flex;align-items:center;justify-content:center;
+    transition:background .4s, box-shadow .4s, border-color .4s;
+    font-size:11px;color:var(--text-dim);
+  }
+  .slot.filled{
+    background:linear-gradient(180deg, rgba(93,255,143,.22), rgba(93,255,143,.06));
+    border-color:var(--phosphor-dim);
+    box-shadow:inset 0 0 14px rgba(93,255,143,.25);
+    color:var(--phosphor);
+  }
+  .slot.full{
+    background:linear-gradient(180deg, rgba(255,93,93,.25), rgba(255,93,93,.07));
+    border-color:#9c3b3b;
+    color:var(--red);
+  }
+
+  .occ-row{display:flex;align-items:baseline;gap:18px;position:relative;z-index:1;}
+  .occ-count{
+    font-family:var(--display);
+    font-size:clamp(32px,7vh,60px);font-weight:700;color:var(--phosphor);
+    text-shadow:0 0 18px rgba(93,255,143,.35);
+    line-height:1;
+  }
+  .occ-of{color:var(--text-dim);font-size:clamp(13px,1.8vh,18px);}
+  .occ-label{
+    margin-left:auto;text-align:right;
+    text-transform:uppercase;letter-spacing:.1em;font-size:clamp(10px,1.3vh,12px);
+  }
+  .occ-status{
+    display:inline-block;margin-top:4px;padding:3px 10px;border-radius:2px;
+    font-size:11px;letter-spacing:.08em;text-transform:uppercase;
+    border:1px solid var(--phosphor-dim);color:var(--phosphor);
+  }
+  .occ-status.full{border-color:#9c3b3b;color:var(--red);}
+  .occ-status.idle{border-color:var(--line);color:var(--text-dim);}
+
+  /* ---- chart ---- */
+  .chartpanel{
+    flex:1 1 auto;
+    min-height:60px;
+    border:1px solid var(--line);border-radius:4px;background:var(--panel);
+    padding: clamp(10px,1.6vh,18px) clamp(14px,2vw,20px) clamp(8px,1.2vh,12px);
+    position:relative;overflow:hidden;
+    display:flex;flex-direction:column;
+  }
+  .chartpanel .k{
+    flex:0 0 auto;
+    text-transform:uppercase;letter-spacing:.1em;font-size:11px;color:var(--text-dim);
+    display:flex;justify-content:space-between;align-items:center;margin-bottom: clamp(4px,1vh,10px);
+  }
+  .chart-legend{display:flex;gap:14px;font-size:10.5px;color:var(--text-dim);text-transform:none;letter-spacing:0;}
+  .chart-legend span{display:inline-flex;align-items:center;gap:5px;}
+  .chart-legend i{width:8px;height:8px;border-radius:50%;display:inline-block;}
+  .chart-legend i.dot-cap{background:var(--red);box-shadow:0 0 6px var(--red);}
+  .chart-legend i.dot-occ{background:var(--phosphor);box-shadow:0 0 6px var(--phosphor);}
+  #chartWrap{position:relative;width:100%;flex:1 1 auto;min-height:0;}
+  #chartCanvas{width:100%;height:100%;display:block;}
+  .chart-readout{
+    position:absolute;top:6px;right:0;
+    font-family:var(--display);font-size:13px;color:var(--phosphor);
+    background:rgba(10,15,11,.85);padding:2px 8px;border:1px solid var(--phosphor-dim);
+    border-radius:2px;opacity:0;transition:opacity .15s;pointer-events:none;
+  }
+
+  /* ---- stat grid ---- */
+  .grid{flex:0 0 auto;display:grid;grid-template-columns:repeat(3,1fr);gap: clamp(6px,1vw,12px);}
+  .card{
+    border:1px solid var(--line);border-radius:4px;background:var(--panel);
+    padding: clamp(8px,1.4vh,16px) clamp(10px,1.6vw,18px);
+    min-width:0;
+  }
+  .card .k{
+    text-transform:uppercase;letter-spacing:.1em;font-size: clamp(9px,1vh,11px);color:var(--text-dim);
+    margin-bottom: clamp(4px,0.8vh,8px);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .card .v{
+    font-family:var(--display);font-size: clamp(15px,2.6vh,26px);color:#eef5ef;font-weight:600;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .card .v.event-in{color:var(--phosphor);}
+  .card .v.event-out{color:var(--amber);}
+  .card .v.event-full{color:var(--red);}
+
+  /* ---- log ---- */
+  .logpanel{
+    flex:0 1 clamp(70px,14vh,160px);
+    border:1px solid var(--line);border-radius:4px;background:var(--panel);
+    padding:0;overflow:hidden;
+    display:flex;flex-direction:column;
+    min-height:0;
+  }
+  .logpanel .k{
+    flex:0 0 auto;
+    text-transform:uppercase;letter-spacing:.1em;font-size:11px;color:var(--text-dim);
+    padding: clamp(6px,1vh,12px) 18px;border-bottom:1px solid var(--line);
+  }
+  #log{list-style:none;margin:0;padding:0;flex:1 1 auto;overflow-y:auto;min-height:0;}
+  #log li{
+    padding: clamp(5px,0.9vh,9px) 18px;border-bottom:1px solid #181f1a;font-size:12.5px;
+    display:flex;justify-content:space-between;gap:12px;color:var(--text);
+  }
+  #log li:last-child{border-bottom:none;}
+  #log .t{color:var(--text-dim);white-space:nowrap;}
+  #log .tag-MASUK{color:var(--phosphor);}
+  #log .tag-KELUAR{color:var(--amber);}
+  #log .tag-PENUH{color:var(--red);}
+
+  /* ---- footer / config ---- */
+  .footer{
+    flex:0 0 auto;
+    display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;
+  }
+  .cfg{display:flex;gap:8px;align-items:center;flex-wrap:wrap;flex:1 1 auto;min-width:0;}
+  input[type=text]{
+    background:#0a0f0b;border:1px solid var(--line);color:var(--text);
+    font-family:var(--mono);font-size:12px;padding:7px 10px;border-radius:3px;
+    flex:1 1 200px;min-width:0;max-width:320px;
+  }
+  button{
+    background:var(--phosphor-dim);color:#06140a;border:none;border-radius:3px;
+    padding:7px 12px;font-family:var(--mono);font-size:11.5px;font-weight:600;cursor:pointer;
+    letter-spacing:.04em;white-space:nowrap;flex:0 0 auto;
+  }
+  button:hover{background:var(--phosphor);}
+  button.reset{background:transparent;border:1px solid var(--red);color:var(--red);}
+  button.reset:hover{background:rgba(255,93,93,.12);}
+  button.export{background:transparent;border:1px solid var(--phosphor-dim);color:var(--phosphor);}
+  button.export:hover{background:rgba(93,255,143,.12);}
+  .note{color:var(--text-dim);font-size:11px;flex:0 0 auto;}
+
+  /* ---- responsive tiers ---- */
+  @media (max-width:680px){
+    .grid{grid-template-columns:1fr 1fr 1fr;}
+    .sub{display:none;}
+  }
+  @media (max-width:460px){
+    .grid{grid-template-columns:1fr 1fr;}
+    .grid .card:nth-child(3){grid-column:1 / -1;}
+    .gate-id{font-size:10px;}
+  }
+  @media (max-height:560px){
+    .sub{display:none;}
+    .gate-signature{padding-top:8px;padding-bottom:6px;}
+    .slots{margin:6px 0 8px;}
+    .logpanel{flex-basis:60px;}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="gatebar">
+    <div class="gate-id"><span class="live-dot" id="liveDot"></span><b>GATE-01</b> · Pinghitung &amp; Pintu Otomatis</div>
+    <div class="gate-id" id="clock">--:--:--</div>
+  </div>
+
+  <div class="titleblock">
+    <h1>Smart Visitor Counter</h1>
+    <div class="sub">Live feed dari Blynk Cloud — sinkron otomatis tiap 2 detik</div>
+  </div>
+
+  <div class="gate-signature">
+    <div class="slots" id="slots"></div>
+    <div class="occ-row">
+      <div>
+        <span class="occ-count" id="count">--</span>
+        <span class="occ-of">/ <span id="maxv">5</span> orang</span>
+      </div>
+      <div class="occ-label">
+        <div>Kapasitas Ruangan</div>
+        <span class="occ-status idle" id="occStatus">MENUNGGU DATA</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="chartpanel">
+    <div class="k">
+      <span>Riwayat Okupansi</span>
+      <span class="chart-legend">
+        <span><i class="dot-occ"></i>Jumlah orang</span>
+        <span><i class="dot-cap"></i>Kapasitas</span>
+      </span>
+    </div>
+    <div id="chartWrap">
+      <canvas id="chartCanvas"></canvas>
+      <div class="chart-readout" id="chartReadout"></div>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <div class="k">Status Terakhir</div>
+      <div class="v" id="lastStatus">—</div>
+    </div>
+    <div class="card">
+      <div class="k">Total Pengunjung (V2)</div>
+      <div class="v" id="totalv">—</div>
+    </div>
+    <div class="card">
+      <div class="k">Update Terakhir</div>
+      <div class="v" id="lastUpdate" style="font-size:16px;">—</div>
+    </div>
+  </div>
+
+  <div class="logpanel">
+    <div class="k">Riwayat Event</div>
+    <ul id="log"><li><span>Belum ada data — masukkan token Blynk di bawah</span></li></ul>
+  </div>
+
+  <div class="footer">
+    <div class="cfg">
+      <input type="text" id="token" placeholder="Blynk Auth Token (mis. f5Z3lYSPFikjGuJefhE2Kj94xEgLp1vm)">
+      <button id="connectBtn">Hubungkan</button>
+      <button class="reset" id="resetBtn">Kirim Reset (V1)</button>
+      <button class="export" id="exportBtn">⬇ Unduh Excel</button>
+    </div>
+    <div class="note" id="statusNote">Belum terhubung</div>
+  </div>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script>
+const KAPASITAS = 5;
+let TOKEN = localStorage.getItem('blynk_token') || '';
+let pollTimer = null;
+let history = []; // {t: Date, count: number}
+let eventLog = []; // {t: Date, status: string}
+const HISTORY_MAX = 60;
+
+const canvas = document.getElementById('chartCanvas');
+const ctx = canvas.getContext('2d');
+const readout = document.getElementById('chartReadout');
+
+function resizeCanvas(){
+  const rect = canvas.parentElement.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  drawChart();
+}
+window.addEventListener('resize', resizeCanvas);
+
+// Catmull-Rom style smoothing: draws a flowing curve THROUGH the real data
+// points (no fabricated values) instead of the old blocky step-line, so
+// genuine rises/falls in occupancy read as smooth waves rather than flat
+// shelves with sharp right-angle jumps.
+function smoothPath(points){
+  if(points.length === 0) return;
+  if(points.length === 1){
+    ctx.moveTo(points[0].x, points[0].y);
+    ctx.lineTo(points[0].x, points[0].y);
+    return;
+  }
+  ctx.moveTo(points[0].x, points[0].y);
+  for(let i=0;i<points.length-1;i++){
+    const p0 = points[i===0 ? i : i-1];
+    const p1 = points[i];
+    const p2 = points[i+1];
+    const p3 = points[i+2 < points.length ? i+2 : i+1];
+    const cp1x = p1.x + (p2.x - p0.x)/6;
+    const cp1y = p1.y + (p2.y - p0.y)/6;
+    const cp2x = p2.x - (p3.x - p1.x)/6;
+    const cp2y = p2.y - (p3.y - p1.y)/6;
+    ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
+  }
+}
+
+function drawChart(){
+  const rect = canvas.parentElement.getBoundingClientRect();
+  const W = rect.width, H = rect.height;
+  const padL = 26, padR = 6, padT = 10, padB = 18;
+  const plotW = W - padL - padR;
+  const plotH = H - padT - padB;
+
+  ctx.clearRect(0,0,W,H);
+
+  // grid lines (horizontal, per capacity step)
+  ctx.strokeStyle = 'rgba(36,48,39,0.7)';
+  ctx.lineWidth = 1;
+  ctx.font = '10px IBM Plex Mono, monospace';
+  ctx.fillStyle = '#6b7d72';
+  for(let i=0;i<=KAPASITAS;i++){
+    const y = padT + plotH - (i/KAPASITAS)*plotH;
+    ctx.beginPath();
+    ctx.moveTo(padL, y);
+    ctx.lineTo(W-padR, y);
+    ctx.stroke();
+    ctx.fillText(i, 4, y+3);
+  }
+
+  if(history.length === 0){
+    ctx.fillStyle = '#3c4a40';
+    ctx.font = '12px IBM Plex Mono, monospace';
+    ctx.fillText('Menunggu data...', padL+8, padT + plotH/2);
+    return;
+  }
+
+  const n = history.length;
+  const xStep = n > 1 ? plotW/(HISTORY_MAX-1) : 0;
+  const xForIndex = i => padL + plotW - (n-1-i)*xStep;
+  const yForVal = v => padT + plotH - (Math.min(v,KAPASITAS)/KAPASITAS)*plotH;
+
+  // capacity threshold line
+  ctx.strokeStyle = 'rgba(255,93,93,0.55)';
+  ctx.setLineDash([4,4]);
+  ctx.beginPath();
+  const capY = yForVal(KAPASITAS);
+  ctx.moveTo(padL, capY);
+  ctx.lineTo(W-padR, capY);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  const pts = history.map((h,i)=>({x:xForIndex(i), y:yForVal(h.count)}));
+
+  // area fill under the smooth occupancy curve
+  const grad = ctx.createLinearGradient(0, padT, 0, padT+plotH);
+  grad.addColorStop(0, 'rgba(93,255,143,0.32)');
+  grad.addColorStop(1, 'rgba(93,255,143,0.0)');
+
+  ctx.beginPath();
+  smoothPath(pts);
+  ctx.lineTo(pts[n-1].x, padT+plotH);
+  ctx.lineTo(pts[0].x, padT+plotH);
+  ctx.closePath();
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // smooth occupancy line
+  ctx.beginPath();
+  smoothPath(pts);
+  ctx.strokeStyle = '#5dff8f';
+  ctx.lineWidth = 2;
+  ctx.shadowColor = 'rgba(93,255,143,0.6)';
+  ctx.shadowBlur = 6;
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  // glowing dot on latest point
+  const lastX = pts[n-1].x, lastY = pts[n-1].y;
+  ctx.beginPath();
+  ctx.fillStyle = '#5dff8f';
+  ctx.arc(lastX, lastY, 4, 0, Math.PI*2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.strokeStyle = 'rgba(93,255,143,0.4)';
+  ctx.lineWidth = 6;
+  ctx.arc(lastX, lastY, 7, 0, Math.PI*2);
+  ctx.stroke();
+}
+
+function pushHistory(count){
+  history.push({t:new Date(), count});
+  if(history.length > HISTORY_MAX) history.shift();
+  drawChart();
+}
+
+canvas.addEventListener('mousemove', (e) => {
+  if(history.length === 0) return;
+  const rect = canvas.parentElement.getBoundingClientRect();
+  const padL = 26, padR = 6;
+  const plotW = rect.width - padL - padR;
+  const n = history.length;
+  const xStep = n > 1 ? plotW/(HISTORY_MAX-1) : 0;
+  const xForIndex = i => padL + plotW - (n-1-i)*xStep;
+  const mx = e.clientX - rect.left;
+  let closest = 0, dist = Infinity;
+  for(let i=0;i<n;i++){
+    const d = Math.abs(xForIndex(i)-mx);
+    if(d < dist){dist = d; closest = i;}
+  }
+  const pt = history[closest];
+  readout.textContent = `${pt.count} org · ${pt.t.toLocaleTimeString('id-ID')}`;
+  readout.style.opacity = '1';
+  readout.style.right = Math.max(0, rect.width - xForIndex(closest) - 70) + 'px';
+});
+canvas.addEventListener('mouseleave', () => { readout.style.opacity = '0'; });
+
+const el = id => document.getElementById(id);
+const tokenInput = el('token');
+tokenInput.value = TOKEN;
+
+function buildSlots(filled, full){
+  const wrap = el('slots');
+  wrap.innerHTML = '';
+  for(let i=1;i<=KAPASITAS;i++){
+    const s = document.createElement('div');
+    s.className = 'slot';
+    if(i<=filled) s.className += full ? ' full' : ' filled';
+    s.textContent = i<=filled ? '●' : i;
+    wrap.appendChild(s);
+  }
+}
+
+function addLog(status){
+  if(!status) return;
+  const log = el('log');
+  const first = log.querySelector('li');
+  if(first && first.textContent.includes('Belum ada data')) log.innerHTML = '';
+  const tagMap = {MASUK:'tag-MASUK', KELUAR:'tag-KELUAR', RUANGAN_PENUH:'tag-PENUH', 'RUANGAN PENUH':'tag-PENUH'};
+  const cls = tagMap[status] || '';
+  const last = log.querySelector('li');
+  if(last && last.dataset.status === status) return; // avoid dup spam
+  const li = document.createElement('li');
+  li.dataset.status = status;
+  const time = new Date().toLocaleTimeString('id-ID');
+  li.innerHTML = `<span class="${cls}">${status}</span><span class="t">${time}</span>`;
+  log.prepend(li);
+  while(log.children.length > 30) log.removeChild(log.lastChild);
+  eventLog.push({t:new Date(), status});
+  if(eventLog.length > 500) eventLog.shift();
+}
+
+function setStatusCard(status){
+  const card = el('lastStatus');
+  card.textContent = status || '—';
+  card.className = 'v';
+  if(status === 'MASUK') card.className += ' event-in';
+  else if(status === 'KELUAR') card.className += ' event-out';
+  else if(status && status.includes('PENUH')) card.className += ' event-full';
+}
+
+async function poll(){
+  if(!TOKEN){ el('statusNote').textContent = 'Belum terhubung — masukkan token'; return; }
+  try{
+    const base = `https://blynk.cloud/external/api/get?token=${TOKEN}`;
+    const [v0, v2, v3] = await Promise.all([
+      fetch(`${base}&V0`).then(r=>r.text()),
+      fetch(`${base}&V2`).then(r=>r.text()),
+      fetch(`${base}&V3`).then(r=>r.text()),
+    ]);
+
+    const count = parseInt(v0) || 0;
+    const total = v2 || '0';
+    const status = (v3 || '').replace(/"/g,'').trim();
+
+    el('count').textContent = count;
+    el('maxv').textContent = KAPASITAS;
+    el('totalv').textContent = total;
+    el('lastUpdate').textContent = new Date().toLocaleTimeString('id-ID');
+
+    const full = count >= KAPASITAS;
+    buildSlots(count, full);
+    pushHistory(count);
+
+    const occStatus = el('occStatus');
+    if(full){
+      occStatus.textContent = 'RUANGAN PENUH';
+      occStatus.className = 'occ-status full';
+    } else {
+      occStatus.textContent = 'TERSEDIA';
+      occStatus.className = 'occ-status';
+    }
+
+    setStatusCard(status);
+    addLog(status);
+
+    el('liveDot').className = 'live-dot';
+    el('statusNote').textContent = 'Terhubung — sinkron tiap 2 detik';
+  }catch(err){
+    el('liveDot').className = 'live-dot off';
+    el('statusNote').textContent = 'Gagal terhubung: cek token / koneksi internet';
+    console.error(err);
+  }
+}
+
+el('connectBtn').addEventListener('click', () => {
+  TOKEN = tokenInput.value.trim();
+  localStorage.setItem('blynk_token', TOKEN);
+  if(pollTimer) clearInterval(pollTimer);
+  poll();
+  pollTimer = setInterval(poll, 2000);
+});
+
+el('resetBtn').addEventListener('click', async () => {
+  if(!TOKEN){ alert('Masukkan token dulu'); return; }
+  try{
+    await fetch(`https://blynk.cloud/external/api/update?token=${TOKEN}&V1=1`);
+    setTimeout(()=>fetch(`https://blynk.cloud/external/api/update?token=${TOKEN}&V1=0`), 500);
+    el('statusNote').textContent = 'Sinyal reset terkirim';
+  }catch(err){
+    el('statusNote').textContent = 'Gagal kirim reset';
+  }
+});
+
+el('exportBtn').addEventListener('click', () => {
+  if(history.length === 0 && eventLog.length === 0){
+    alert('Belum ada data untuk diunduh. Hubungkan dashboard terlebih dahulu.');
+    return;
+  }
+
+  const occSheetData = history.map(h => ({
+    Waktu: h.t.toLocaleString('id-ID'),
+    'Jumlah Orang': h.count,
+    Kapasitas: KAPASITAS,
+  }));
+
+  const eventSheetData = eventLog.map(e => ({
+    Waktu: e.t.toLocaleString('id-ID'),
+    Status: e.status,
+  }));
+
+  const wb = XLSX.utils.book_new();
+  const wsOcc = XLSX.utils.json_to_sheet(occSheetData.length ? occSheetData : [{Waktu:'-', 'Jumlah Orang':'-', Kapasitas:'-'}]);
+  const wsEvt = XLSX.utils.json_to_sheet(eventSheetData.length ? eventSheetData : [{Waktu:'-', Status:'-'}]);
+  XLSX.utils.book_append_sheet(wb, wsOcc, 'Riwayat Okupansi');
+  XLSX.utils.book_append_sheet(wb, wsEvt, 'Riwayat Event');
+
+  const filename = `gate01_data_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.xlsx`;
+  XLSX.writeFile(wb, filename);
+  el('statusNote').textContent = `Excel diunduh: ${filename}`;
+});
+
+function tickClock(){
+  el('clock').textContent = new Date().toLocaleTimeString('id-ID');
+}
+setInterval(tickClock, 1000);
+tickClock();
+
+buildSlots(0,false);
+resizeCanvas();
+
+if(TOKEN){
+  poll();
+  pollTimer = setInterval(poll, 2000);
+}
+</script>
+</body>
+</html>
